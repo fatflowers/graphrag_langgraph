@@ -6,6 +6,7 @@ import itertools
 from typing import Iterable, List
 
 from ..graph_store import GraphIndexStore
+from ..prompts import build_claims_prompt, build_community_report_prompt, build_graph_extraction_prompt
 from ..types import Claim, Community, CommunitySummary, Document, Entity, Relation, TextUnit
 from .state import IndexState
 
@@ -58,10 +59,23 @@ def split_into_text_units(state: IndexState) -> IndexState:
                         text=chunk,
                         n_tokens=token_count,
                         attributes={"title": doc.title},
-                    )
                 )
-                doc.text_unit_ids.append(uid)
+            )
+            doc.text_unit_ids.append(uid)
     state.text_units = text_units
+    # record the prompts we would send to the LLM in a full pipeline
+    state.graph_extraction_prompts = [
+        build_graph_extraction_prompt(doc.text, entity_types="ORGANIZATION,PERSON,GEO")
+        for doc in state.raw_docs
+    ]
+    state.claim_extraction_prompts = [
+        build_claims_prompt(
+            entity_specs="ORGANIZATION,PERSON,GEO",
+            claim_description="Identify notable claims for each entity.",
+            input_text=doc.text,
+        )
+        for doc in state.raw_docs
+    ]
     return state
 
 
@@ -170,6 +184,7 @@ def detect_communities(state: IndexState) -> IndexState:
 
 def summarize_communities(state: IndexState) -> IndexState:
     summaries: List[CommunitySummary] = []
+    state.community_report_prompts = []
     for comm in state.communities:
         names = [
             state.index_store.entities[eid].title
@@ -191,6 +206,27 @@ def summarize_communities(state: IndexState) -> IndexState:
             if state.index_store
             else summary_text
         )
+        # prepare upstream-style prompt text to keep the execution path aligned with the official implementation
+        report_rows = ["Entities", "", "id,entity,description"]
+        if state.index_store:
+            for eid in comm.member_entity_ids:
+                ent = state.index_store.entities.get(eid)
+                if ent:
+                    report_rows.append(f"{eid},{ent.title},{ent.description}")
+        report_rows.extend(["", "Relationships", "", "id,source,target,description"])
+        if state.index_store:
+            for rel in state.relations:
+                if rel.id in comm.relationship_ids:
+                    report_rows.append(f"{rel.id},{rel.source},{rel.target},{rel.description}")
+        report_rows.extend(["", "Claims", "", "id,subject,description"])
+        if state.index_store:
+            for claim in state.claims:
+                if claim.subject_id in comm.member_entity_ids:
+                    report_rows.append(f"{claim.id},{claim.subject_id},{claim.text}")
+        community_prompt_input = "\n".join(report_rows)
+        report_prompt = build_community_report_prompt(
+            community_prompt_input, max_report_length=state.config.max_summary_tokens
+        )
         summaries.append(
             CommunitySummary(
                 id=f"{comm.id}-report",
@@ -201,8 +237,10 @@ def summarize_communities(state: IndexState) -> IndexState:
                 full_content=full_content or summary_text,
                 referenced_entities=comm.member_entity_ids,
                 referenced_text_units=referenced_text_units,
+                attributes={"prompt": report_prompt},
             )
         )
+        state.community_report_prompts.append(report_prompt)
     state.community_summaries = summaries
     if state.index_store:
         state.index_store.add_community_summaries(summaries)

@@ -20,3 +20,6 @@ class IndexState:
     communities: List[Community] = field(default_factory=list)
     community_summaries: List[CommunitySummary] = field(default_factory=list)
     index_store: Optional[GraphIndexStore] = None
+    graph_extraction_prompts: List[str] = field(default_factory=list)
+    claim_extraction_prompts: List[str] = field(default_factory=list)
+    community_report_prompts: List[str] = field(default_factory=list)
