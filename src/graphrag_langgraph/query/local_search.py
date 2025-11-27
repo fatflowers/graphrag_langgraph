@@ -35,16 +35,19 @@ def local_search_node(state: QueryState) -> QueryState:
         ent = state.index_store.entities.get(ent_res.id)
         if not ent:
             continue
-        context_parts.append(f"Entity {ent.name}: {ent.description}")
+        context_parts.append(f"Entity {ent.title}: {ent.description}")
         # explore neighbors
         neighbors = state.index_store.get_neighbors(ent.id, depth=1)
-        neighbor_names = [state.index_store.entities[nid].name for nid in neighbors if nid in state.index_store.entities]
+        neighbor_names = [
+            state.index_store.entities[nid].title for nid in neighbors if nid in state.index_store.entities and nid != ent.id
+        ]
         if neighbor_names:
             context_parts.append("Neighbors: " + ", ".join(neighbor_names))
-        if ent.text_unit_id:
-            tu = state.index_store.text_units.get(ent.text_unit_id)
-            if tu:
-                seen_text_units.append(tu.text)
+        if ent.text_unit_ids:
+            for tu_id in ent.text_unit_ids:
+                tu = state.index_store.text_units.get(tu_id)
+                if tu:
+                    seen_text_units.append(tu.text)
     if seen_text_units:
         context_parts.append("Evidence: " + " | ".join(seen_text_units[: state.config.top_k_text_units]))
     state.context = "\n".join(context_parts)

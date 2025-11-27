@@ -37,6 +37,8 @@ def global_search_node(state: QueryState) -> QueryState:
         summary = state.index_store.community_summaries.get(comm_res.id)
         if summary:
             context_parts.append(f"Community {comm_res.id}: {summary.summary_text}")
+            if summary.full_content:
+                context_parts.append(f"Report: {summary.full_content}")
         comm = state.index_store.communities.get(comm_res.id)
         if not comm:
             continue
@@ -44,10 +46,11 @@ def global_search_node(state: QueryState) -> QueryState:
         text_units: List[TextUnit] = []
         for ent_id in comm.member_entity_ids:
             ent = state.index_store.entities.get(ent_id)
-            if ent and ent.text_unit_id:
-                tu = state.index_store.text_units.get(ent.text_unit_id)
-                if tu:
-                    text_units.append(tu)
+            if ent and ent.text_unit_ids:
+                for tu_id in ent.text_unit_ids:
+                    tu = state.index_store.text_units.get(tu_id)
+                    if tu:
+                        text_units.append(tu)
         snippet = " | ".join(tu.text[:200] for tu in text_units[: state.config.top_k_text_units])
         if snippet:
             context_parts.append(f"Evidence: {snippet}")

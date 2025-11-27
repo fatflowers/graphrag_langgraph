@@ -3,24 +3,26 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import math
 
-from .types import Claim, Community, CommunitySummary, Entity, Relation, RetrievalResult, TextUnit
+from .types import Claim, Community, CommunitySummary, Document, Entity, Relation, RetrievalResult, TextUnit
 
 
 class BasicGraph:
     """Lightweight directed multigraph replacement for environments without networkx."""
 
     def __init__(self) -> None:
-        self.nodes: Dict[str, Dict[str, any]] = {}
-        self.edges: Dict[str, Dict[str, Dict[str, any]]] = {}
+        self.nodes: Dict[str, Dict[str, Any]] = {}
+        self.edges: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
-    def add_node(self, node_id: str, **attrs: any) -> None:
-        self.nodes[node_id] = attrs
+    def add_node(self, node_id: str, **attrs: Any) -> None:
+        existing = self.nodes.get(node_id, {})
+        existing.update(attrs)
+        self.nodes[node_id] = existing
 
-    def add_edge(self, source: str, target: str, key: str, **attrs: any) -> None:
+    def add_edge(self, source: str, target: str, key: str, **attrs: Any) -> None:
         self.edges.setdefault(source, {}).setdefault(target, {})[key] = attrs
 
     def predecessors(self, node_id: str):
@@ -77,13 +79,13 @@ class SimpleVectorStore:
     """A tiny in-memory vector store for embeddings."""
 
     def __init__(self) -> None:
-        self.items: Dict[str, Tuple[List[float], Dict[str, any]]] = {}
+        self.items: Dict[str, Tuple[List[float], Dict[str, Any]]] = {}
 
-    def add(self, item_id: str, vector: List[float], metadata: Optional[Dict[str, any]] = None) -> None:
+    def add(self, item_id: str, vector: List[float], metadata: Optional[Dict[str, Any]] = None) -> None:
         self.items[item_id] = (list(vector), metadata or {})
 
     def add_many(
-        self, ids: Iterable[str], vectors: Iterable[List[float]], metadatas: Iterable[Optional[Dict[str, any]]]
+        self, ids: Iterable[str], vectors: Iterable[List[float]], metadatas: Iterable[Optional[Dict[str, Any]]]
     ) -> None:
         for item_id, vector, meta in zip(ids, vectors, metadatas):
             self.add(item_id, vector, meta)
@@ -96,7 +98,7 @@ class SimpleVectorStore:
         scores.sort(key=lambda r: r.score, reverse=True)
         return scores[:k]
 
-    def serialize(self) -> Dict[str, any]:
+    def serialize(self) -> Dict[str, Any]:
         return {
             "items": [
                 {"id": item_id, "vector": list(vec), "metadata": meta}
@@ -105,7 +107,7 @@ class SimpleVectorStore:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, any]) -> "SimpleVectorStore":
+    def from_dict(cls, data: Dict[str, Any]) -> "SimpleVectorStore":
         store = cls()
         for item in data.get("items", []):
             store.add(item["id"], item.get("vector", []), item.get("metadata", {}))
@@ -118,6 +120,7 @@ class GraphIndexStore:
     def __init__(self, embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None) -> None:
         self.embedding_fn = embedding_fn
         self.graph = BasicGraph()
+        self.documents: Dict[str, Document] = {}
         self.text_units: Dict[str, TextUnit] = {}
         self.entities: Dict[str, Entity] = {}
         self.relations: Dict[str, Relation] = {}
@@ -130,6 +133,10 @@ class GraphIndexStore:
         self.community_store = SimpleVectorStore()
 
     # --------------------- adders ---------------------
+    def add_documents(self, documents: Iterable[Document]) -> None:
+        for doc in documents:
+            self.documents[doc.id] = doc
+
     def add_text_units(self, text_units: Iterable[TextUnit]) -> None:
         for tu in text_units:
             self.text_units[tu.id] = tu
@@ -142,7 +149,7 @@ class GraphIndexStore:
     def add_relations(self, relations: Iterable[Relation]) -> None:
         for rel in relations:
             self.relations[rel.id] = rel
-            self.graph.add_edge(rel.head_entity, rel.tail_entity, key=rel.id, **rel.dict())
+            self.graph.add_edge(rel.source, rel.target, key=rel.id, **rel.dict())
 
     def add_claims(self, claims: Iterable[Claim]) -> None:
         for claim in claims:
@@ -160,23 +167,47 @@ class GraphIndexStore:
     def embed_and_store_entities(self, entity_ids: List[str]) -> None:
         if self.embedding_fn is None:
             return
-        texts = [self.entities[eid].name + "\n" + self.entities[eid].description for eid in entity_ids]
+        texts: List[str] = []
+        ids: List[str] = []
+        for eid in entity_ids:
+            ent = self.entities.get(eid)
+            if ent:
+                ids.append(eid)
+                texts.append(f"{ent.title}\n{ent.description}")
+        if not ids:
+            return
         vectors = self.embedding_fn(texts)
-        self.entity_store.add_many(entity_ids, vectors, [{} for _ in entity_ids])
+        self.entity_store.add_many(ids, vectors, [{} for _ in ids])
 
     def embed_and_store_text_units(self, text_unit_ids: List[str]) -> None:
         if self.embedding_fn is None:
             return
-        texts = [self.text_units[tid].text for tid in text_unit_ids]
+        texts: List[str] = []
+        ids: List[str] = []
+        for tid in text_unit_ids:
+            tu = self.text_units.get(tid)
+            if tu:
+                ids.append(tid)
+                texts.append(tu.text)
+        if not ids:
+            return
         vectors = self.embedding_fn(texts)
-        self.text_unit_store.add_many(text_unit_ids, vectors, [{} for _ in text_unit_ids])
+        self.text_unit_store.add_many(ids, vectors, [{} for _ in ids])
 
     def embed_and_store_communities(self, community_ids: List[str]) -> None:
         if self.embedding_fn is None:
             return
-        texts = [self.community_summaries[cid].summary_text for cid in community_ids]
+        texts: List[str] = []
+        ids: List[str] = []
+        for cid in community_ids:
+            summary = self.community_summaries.get(cid)
+            if summary:
+                ids.append(cid)
+                texts.append(summary.full_content or summary.summary or summary.title)
+        if not ids:
+            return
         vectors = self.embedding_fn(texts)
-        self.community_store.add_many(community_ids, vectors, [{} for _ in community_ids])
+        self.community_store.add_many(ids, vectors, [{} for _ in ids])
 
     # ----------------- retrieval ------------------
     def search_entities(self, query_embedding: List[float], k: int = 5) -> List[RetrievalResult]:
@@ -203,6 +234,8 @@ class GraphIndexStore:
     # ----------------- persistence ------------------
     def save(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
+        with (path / "documents.json").open("w", encoding="utf-8") as f:
+            json.dump([doc.dict() for doc in self.documents.values()], f, indent=2)
         with (path / "text_units.json").open("w", encoding="utf-8") as f:
             json.dump([tu.dict() for tu in self.text_units.values()], f, indent=2)
         with (path / "entities.json").open("w", encoding="utf-8") as f:
@@ -226,6 +259,10 @@ class GraphIndexStore:
     @classmethod
     def load(cls, path: Path, embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None) -> "GraphIndexStore":
         store = cls(embedding_fn=embedding_fn)
+        documents_path = path / "documents.json"
+        if documents_path.exists():
+            with documents_path.open("r", encoding="utf-8") as f:
+                store.add_documents(Document(**item) for item in json.load(f))
         with (path / "text_units.json").open("r", encoding="utf-8") as f:
             store.add_text_units(TextUnit(**item) for item in json.load(f))
         with (path / "entities.json").open("r", encoding="utf-8") as f:
