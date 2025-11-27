@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from ..config import IndexConfig
 from ..graph_store import GraphIndexStore
@@ -23,3 +23,5 @@ class IndexState:
     graph_extraction_prompts: List[str] = field(default_factory=list)
     claim_extraction_prompts: List[str] = field(default_factory=list)
     community_report_prompts: List[str] = field(default_factory=list)
+    graph_extraction_responses: List[str] = field(default_factory=list)
+    llm: Optional[Callable[[str], str]] = None

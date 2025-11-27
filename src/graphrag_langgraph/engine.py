@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from .config import IndexConfig, QueryConfig
 from .graph_store import GraphIndexStore
@@ -37,9 +37,12 @@ class GraphRAGEngine:
         return cls(index_config=index_config, query_config=query_config)
 
     def index(self, corpus: Iterable[Document]) -> None:
+        return self.index_with_llm(corpus)
+
+    def index_with_llm(self, corpus: Iterable[Document], llm: Optional[Callable[[str], str]] = None) -> None:
         documents = [doc if isinstance(doc, Document) else Document(**doc) for doc in corpus]
         index_graph = build_index_graph(self.index_config)
-        final_state = run_indexing(index_graph, documents, self.index_config)
+        final_state = run_indexing(index_graph, documents, self.index_config, llm=llm)
         self.index_store = final_state.index_store
 
     def load_index(self, root_path: str | Path) -> None:

@@ -1,7 +1,7 @@
 """LangGraph pipeline for indexing."""
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Protocol
 
 from langgraph.graph import END, StateGraph
 
@@ -20,6 +20,11 @@ from .state import IndexState
 
 
 CompiledGraph = Callable[[IndexState], IndexState]
+
+
+class LLMCallable(Protocol):
+    def __call__(self, prompt: str) -> str:
+        ...
 
 
 def build_index_graph(config: IndexConfig) -> StateGraph:
@@ -46,10 +51,12 @@ def build_index_graph(config: IndexConfig) -> StateGraph:
     return graph
 
 
-def run_indexing(graph: StateGraph, documents: List[Document], config: IndexConfig) -> IndexState:
+def run_indexing(
+    graph: StateGraph, documents: List[Document], config: IndexConfig, llm: Optional[LLMCallable] = None
+) -> IndexState:
     """Convenience wrapper to run the compiled graph."""
 
-    initial_state = IndexState(raw_docs=documents, config=config)
+    initial_state = IndexState(raw_docs=documents, config=config, llm=llm)
     compiled = graph.compile()
     final_state = compiled.invoke(initial_state)
     return final_state

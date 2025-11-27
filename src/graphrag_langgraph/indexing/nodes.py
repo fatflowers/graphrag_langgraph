@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import itertools
-from typing import Iterable, List
+from typing import Dict, Iterable, List, Tuple
 
 from ..graph_store import GraphIndexStore
 from ..prompts import build_claims_prompt, build_community_report_prompt, build_graph_extraction_prompt
@@ -22,6 +22,30 @@ def _hash_embedding_fn(texts: List[str]) -> List[List[float]]:
         vec = [(b - 128) / 128 for b in chunk]
         vectors.append(vec)
     return vectors
+
+
+def _parse_graph_response(
+    response: str, tuple_delimiter: str = "|", record_delimiter: str = "\n"
+) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str, str, str]]]:
+    """Very lightweight parser for the upstream graph extraction prompt output."""
+
+    entities: List[Tuple[str, str, str]] = []
+    relations: List[Tuple[str, str, str, str]] = []
+    for raw in response.split(record_delimiter):
+        rec = raw.strip()
+        if not rec or rec.startswith("[END]"):
+            continue
+        if rec.startswith("(") and rec.endswith(")"):
+            rec = rec[1:-1]
+        parts = [p.strip().strip('"') for p in rec.split(tuple_delimiter)]
+        if not parts:
+            continue
+        tag = parts[0].lower()
+        if tag == "entity" and len(parts) >= 4:
+            entities.append((parts[1], parts[2], parts[3]))
+        elif tag == "relationship" and len(parts) >= 5:
+            relations.append((parts[1], parts[2], parts[3], parts[4]))
+    return entities, relations
 
 
 def _chunk_block(text: str, chunk_size: int, chunk_overlap: int) -> Iterable[tuple[str, int]]:
@@ -82,53 +106,10 @@ def split_into_text_units(state: IndexState) -> IndexState:
 def extract_entities_relations_claims(state: IndexState) -> IndexState:
     """Extract entities, relations, and claims using a simple heuristic or LLM stub."""
 
-    entities: List[Entity] = []
-    relations: List[Relation] = []
-    claims: List[Claim] = []
-    previous_entity_id: str | None = None
-    last_doc_id: str | None = None
-
-    for tu in state.text_units:
-        current_doc = tu.document_ids[0] if tu.document_ids else tu.source_doc_id
-        if current_doc != last_doc_id:
-            previous_entity_id = None
-        tokens = tu.text.split()
-        name = next((t.strip(",.;") for t in tokens if t[:1].isupper()), tokens[0] if tokens else "Unknown")
-        ent_id = f"ent-{tu.id}"
-        entity = Entity(
-            id=ent_id,
-            title=name,
-            type="heuristic",
-            description=f"Entity mentioned in {tu.id}",
-            text_unit_ids=[tu.id],
-        )
-        entities.append(entity)
-        tu.entity_ids.append(ent_id)
-
-        claim = Claim(
-            id=f"claim-{tu.id}",
-            subject_id=ent_id,
-            text=tu.text[:200],
-            text_unit_ids=[tu.id],
-        )
-        claims.append(claim)
-
-        if previous_entity_id:
-            rel_id = f"rel-{tu.id}"
-            relations.append(
-                Relation(
-                    id=rel_id,
-                    source=previous_entity_id,
-                    target=ent_id,
-                    relation_type="co-occurs",
-                    description="Heuristic co-occurrence in adjacent text units",
-                    text_unit_ids=[tu.id],
-                )
-            )
-            tu.relationship_ids.append(rel_id)
-        previous_entity_id = ent_id
-        last_doc_id = current_doc
-
+    if state.llm:
+        entities, relations, claims = _extract_with_llm(state)
+    else:
+        entities, relations, claims = _extract_with_heuristics(state)
     state.entities = entities
     state.relations = relations
     state.claims = claims
@@ -263,6 +244,146 @@ def persist_index(state: IndexState) -> IndexState:
     if state.config.persist_graph and state.index_store:
         state.index_store.save(state.config.vector_store_dir)
     return state
+
+
+def _extract_with_heuristics(state: IndexState) -> Tuple[List[Entity], List[Relation], List[Claim]]:
+    """Existing offline heuristic path."""
+
+    entities: List[Entity] = []
+    relations: List[Relation] = []
+    claims: List[Claim] = []
+    previous_entity_id: str | None = None
+    last_doc_id: str | None = None
+
+    for tu in state.text_units:
+        current_doc = tu.document_ids[0] if tu.document_ids else tu.source_doc_id
+        if current_doc != last_doc_id:
+            previous_entity_id = None
+        tokens = tu.text.split()
+        name = next((t.strip(",.;") for t in tokens if t[:1].isupper()), tokens[0] if tokens else "Unknown")
+        ent_id = f"ent-{tu.id}"
+        entity = Entity(
+            id=ent_id,
+            title=name,
+            type="heuristic",
+            description=f"Entity mentioned in {tu.id}",
+            text_unit_ids=[tu.id],
+        )
+        entities.append(entity)
+        tu.entity_ids.append(ent_id)
+
+        claim = Claim(
+            id=f"claim-{tu.id}",
+            subject_id=ent_id,
+            text=tu.text[:200],
+            text_unit_ids=[tu.id],
+        )
+        claims.append(claim)
+
+        if previous_entity_id:
+            rel_id = f"rel-{tu.id}"
+            relations.append(
+                Relation(
+                    id=rel_id,
+                    source=previous_entity_id,
+                    target=ent_id,
+                    relation_type="co-occurs",
+                    description="Heuristic co-occurrence in adjacent text units",
+                    text_unit_ids=[tu.id],
+                )
+            )
+            tu.relationship_ids.append(rel_id)
+        previous_entity_id = ent_id
+        last_doc_id = current_doc
+    return entities, relations, claims
+
+
+def _extract_with_llm(state: IndexState) -> Tuple[List[Entity], List[Relation], List[Claim]]:
+    """LLM-driven path using the upstream prompt format."""
+
+    llm = state.llm
+    if llm is None:
+        return _extract_with_heuristics(state)
+
+    entities: List[Entity] = []
+    relations: List[Relation] = []
+    claims: List[Claim] = []
+    state.graph_extraction_responses = []
+    tuple_delim = "|"
+    record_delim = "\n"
+
+    # map doc id to its text units for grounding
+    doc_tu_map: Dict[str, List[str]] = {}
+    for tu in state.text_units:
+        for doc_id in (tu.document_ids or []):
+            doc_tu_map.setdefault(doc_id, []).append(tu.id)
+
+    entity_name_to_id: Dict[str, str] = {}
+    rel_counter = itertools.count()
+    ent_counter = itertools.count()
+
+    for doc in state.raw_docs:
+        prompt = build_graph_extraction_prompt(
+            doc.text,
+            entity_types="ORGANIZATION,PERSON,GEO",
+            tuple_delimiter=tuple_delim,
+            record_delimiter=record_delim,
+        )
+        response = llm(prompt)
+        state.graph_extraction_responses.append(response)
+        parsed_entities, parsed_relations = _parse_graph_response(response, tuple_delim, record_delim)
+
+        for name, etype, desc in parsed_entities:
+            clean_name = name.strip()
+            eid = f"ent-llm-{next(ent_counter)}"
+            entity_name_to_id[clean_name.lower()] = eid
+            entities.append(
+                Entity(
+                    id=eid,
+                    title=clean_name,
+                    type=etype or "unknown",
+                    description=desc,
+                    text_unit_ids=doc_tu_map.get(doc.id, []),
+                    attributes={"source_doc": doc.id, "source": "llm_prompt"},
+                )
+            )
+            claims.append(
+                Claim(
+                    id=f"claim-{eid}",
+                    subject_id=eid,
+                    text=desc[:200] or clean_name,
+                    text_unit_ids=doc_tu_map.get(doc.id, []),
+                    attributes={"source_doc": doc.id},
+                )
+            )
+
+        for src_name, tgt_name, rel_desc, rel_strength in parsed_relations:
+            src_id = entity_name_to_id.get(src_name.strip().lower())
+            tgt_id = entity_name_to_id.get(tgt_name.strip().lower())
+            if not src_id or not tgt_id:
+                continue
+            rid = f"rel-llm-{next(rel_counter)}"
+            try:
+                weight = float(rel_strength)
+            except Exception:
+                weight = 1.0
+            relations.append(
+                Relation(
+                    id=rid,
+                    source=src_id,
+                    target=tgt_id,
+                    relation_type="llm_extracted",
+                    description=rel_desc,
+                    weight=weight,
+                    text_unit_ids=doc_tu_map.get(doc.id, []),
+                    attributes={"source_doc": doc.id, "source": "llm_prompt"},
+                )
+            )
+
+    if not entities:
+        # fall back to heuristics if LLM returned nothing usable
+        return _extract_with_heuristics(state)
+    return entities, relations, claims
 
 
 __all__ = [
