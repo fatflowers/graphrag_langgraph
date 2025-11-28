@@ -1,33 +1,36 @@
-"""Configuration dataclasses for GraphRAG."""
+"""
+Thin wrappers around the upstream GraphRAG configuration loader.
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Mapping
+
+from graphrag.config.load_config import load_config
+from graphrag.config.models.graph_rag_config import GraphRagConfig
+
+__all__ = ["GraphRagConfig", "load_graph_rag_config"]
 
 
-@dataclass
-class IndexConfig:
-    chunk_size: int = 800
-    chunk_overlap: int = 100
-    llm_model: str = "gpt-4o-mini"
-    embedding_model: str = "text-embedding-3-small"
-    community_resolution: float = 1.0
-    community_levels: int = 1
-    vector_store_dir: Path = Path(".graph_index")
-    max_summary_tokens: int = 512
-    persist_graph: bool = True
+def load_graph_rag_config(
+    config_path: str | Path | None = None,
+    root: str | Path | None = None,
+    overrides: Mapping[str, Any] | None = None,
+) -> GraphRagConfig:
+    """
+    Load a `GraphRagConfig` using the official loader.
 
-
-@dataclass
-class QueryConfig:
-    top_k_communities: int = 5
-    top_k_entities: int = 8
-    top_k_text_units: int = 8
-    context_token_budget: int = 2048
-    llm_model: str = "gpt-4o-mini"
-    embedding_model: str = "text-embedding-3-small"
-    default_mode: Literal["auto", "global", "local", "basic"] = "auto"
-    vector_store_dir: Optional[Path] = None
-    temperature: float = 0.1
-    max_answer_tokens: int = 512
+    Parameters
+    ----------
+    config_path:
+        Optional path to a YAML configuration file (graphrag.yml). If omitted,
+        defaults mirror `graphrag.cli` semantics.
+    root:
+        Project root; falls back to the current working directory when not provided.
+    overrides:
+        Optional dot-delimited overrides (e.g., {"output.base_dir": "/tmp/out"}).
+    """
+    root_path = Path(root) if root is not None else Path()
+    cfg_path = Path(config_path) if config_path is not None else None
+    return load_config(root_path, cfg_path, overrides or {})

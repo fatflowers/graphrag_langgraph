@@ -15,12 +15,16 @@ dependencies = [
   "langchain>=0.2.3",
   "langchain-community>=0.2.3",
   "langchain-core>=0.2.3",
+  "graphrag @ file:///Users/simon/learn/graphrag",
   "pydantic>=2.6",
   "networkx>=3.2",
   "numpy>=1.26",
   "pandas>=2.2",
   "pyyaml>=6.0",
 ]
+
+[project.scripts]
+graphrag-langgraph = "graphrag_langgraph.cli:main"
 
 [project.optional-dependencies]
 dev = [

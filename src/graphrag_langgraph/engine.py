@@ -1,61 +1,80 @@
-"""High-level API for running GraphRAG with LangGraph."""
+"""
+High-level engine that exposes GraphRAG functionality via LangGraph graphs.
+"""
+
 from __future__ import annotations
 
-from copy import deepcopy
 from pathlib import Path
-from typing import Callable, Iterable, Optional
+from typing import Any, Mapping
 
-from .config import IndexConfig, QueryConfig
-from .graph_store import GraphIndexStore
-from .indexing.pipeline import build_index_graph, run_indexing
-from .query.pipeline import build_query_graph, run_query
-from .types import Document
+from graphrag.config.models.graph_rag_config import GraphRagConfig
+
+from .config import load_graph_rag_config
+from .index_graph import build_index_graph
+from .query_graph import build_query_graph
+from .state import IndexState, QueryState
 
 
 class GraphRAGEngine:
-    """User-facing facade that orchestrates indexing and querying."""
+    """
+    Thin façade that loads upstream GraphRAG configuration and executes LangGraph
+    graphs for indexing and querying.
+    """
 
     def __init__(
         self,
-        index_config: Optional[IndexConfig] = None,
-        query_config: Optional[QueryConfig] = None,
-        index_store: Optional[GraphIndexStore] = None,
-    ) -> None:
-        self.index_config = index_config or IndexConfig()
-        self.query_config = query_config or QueryConfig()
-        self.index_store = index_store
+        config_path: str | Path | None = None,
+        config: GraphRagConfig | None = None,
+        root: str | Path | None = None,
+        overrides: Mapping[str, Any] | None = None,
+    ):
+        self.config = config or load_graph_rag_config(
+            config_path, root=root, overrides=overrides
+        )
+        self.index_graph = build_index_graph(self.config)
+        self.query_graph = build_query_graph(self.config)
 
-    @classmethod
-    def from_config_file(cls, path: str | Path) -> "GraphRAGEngine":
-        path = Path(path)
-        import yaml  # optional dependency; imported lazily
+    def index(self, **kwargs: Any) -> IndexState:
+        """
+        Run the LangGraph indexing pipeline.
 
-        with path.open("r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        index_config = IndexConfig(**data.get("index", {}))
-        query_config = QueryConfig(**data.get("query", {}))
-        return cls(index_config=index_config, query_config=query_config)
+        Returns a final `IndexState`. Node implementations will fill in artifacts,
+        pipeline outputs, and any diagnostics.
+        """
+        state: IndexState = {"config": self.config, **kwargs}
+        return self.index_graph.invoke(state)
 
-    def index(self, corpus: Iterable[Document]) -> None:
-        return self.index_with_llm(corpus)
+    def query(self, question: str, mode: str = "auto", **kwargs: Any) -> QueryState:
+        """
+        Run a query through the LangGraph query pipeline.
 
-    def index_with_llm(self, corpus: Iterable[Document], llm: Optional[Callable[[str], str]] = None) -> None:
-        documents = [doc if isinstance(doc, Document) else Document(**doc) for doc in corpus]
-        index_graph = build_index_graph(self.index_config)
-        final_state = run_indexing(index_graph, documents, self.index_config, llm=llm)
-        self.index_store = final_state.index_store
+        Parameters
+        ----------
+        question:
+            The user question to answer.
+        mode:
+            Desired search mode; defaults to "auto" (router to be implemented).
+        """
+        state: QueryState = {
+            "config": self.config,
+            "question": question,
+            "mode": mode,
+            **kwargs,
+        }
+        return self.query_graph.invoke(state)
 
-    def load_index(self, root_path: str | Path) -> None:
-        self.index_store = GraphIndexStore.load(Path(root_path))
+    def global_search(self, question: str, **kwargs: Any) -> QueryState:
+        """Convenience helper for global mode."""
+        return self.query(question=question, mode="global", **kwargs)
 
-    def answer(self, question: str, mode: str = "auto") -> str:
-        if self.index_store is None:
-            raise ValueError("Index not built or loaded.")
-        config = deepcopy(self.query_config)
-        config.default_mode = mode  # type: ignore
-        query_graph = build_query_graph(config)
-        result_state = run_query(query_graph, question, config, self.index_store)
-        return result_state.answer or ""
+    def local_search(self, question: str, **kwargs: Any) -> QueryState:
+        """Convenience helper for local mode."""
+        return self.query(question=question, mode="local", **kwargs)
 
+    def basic_search(self, question: str, **kwargs: Any) -> QueryState:
+        """Convenience helper for basic mode."""
+        return self.query(question=question, mode="basic", **kwargs)
 
-__all__ = ["GraphRAGEngine"]
+    def drift_search(self, question: str, **kwargs: Any) -> QueryState:
+        """Convenience helper for drift mode."""
+        return self.query(question=question, mode="drift", **kwargs)
