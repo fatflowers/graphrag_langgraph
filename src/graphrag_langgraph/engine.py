@@ -7,10 +7,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+from graphrag.config.enums import IndexingMethod
 from graphrag.config.models.graph_rag_config import GraphRagConfig
 
 from .config import load_graph_rag_config
-from .index_graph import build_index_graph
+from .index_graph import (
+    build_fast_index_graph,
+    build_fast_update_index_graph,
+    build_standard_index_graph,
+    build_standard_update_index_graph,
+)
 from .query_graph import build_query_graph
 from .state import IndexState, QueryState
 
@@ -31,7 +37,12 @@ class GraphRAGEngine:
         self.config = config or load_graph_rag_config(
             config_path, root=root, overrides=overrides
         )
-        self.index_graph = build_index_graph(self.config)
+        self.index_graphs = {
+            IndexingMethod.Standard.value: build_standard_index_graph(),
+            IndexingMethod.Fast.value: build_fast_index_graph(),
+            IndexingMethod.StandardUpdate.value: build_standard_update_index_graph(),
+            IndexingMethod.FastUpdate.value: build_fast_update_index_graph(),
+        }
         self.query_graph = build_query_graph(self.config)
 
     def index(self, **kwargs: Any) -> IndexState:
@@ -41,8 +52,15 @@ class GraphRAGEngine:
         Returns a final `IndexState`. Node implementations will fill in artifacts,
         pipeline outputs, and any diagnostics.
         """
+        method = kwargs.get("pipeline_method", IndexingMethod.Standard)
+        is_update = bool(kwargs.get("is_update_run", False))
+        method_val = _normalize_indexing_method(method, is_update)
+        graph = self.index_graphs.get(method_val)
+        if graph is None:
+            msg = f"Unsupported indexing method: {method}"
+            raise ValueError(msg)
         state: IndexState = {"config": self.config, **kwargs}
-        return self.index_graph.invoke(state)
+        return graph.invoke(state)
 
     def query(self, question: str, mode: str = "auto", **kwargs: Any) -> QueryState:
         """
@@ -78,3 +96,21 @@ class GraphRAGEngine:
     def drift_search(self, question: str, **kwargs: Any) -> QueryState:
         """Convenience helper for drift mode."""
         return self.query(question=question, mode="drift", **kwargs)
+
+
+def _normalize_indexing_method(
+    method: IndexingMethod | str, is_update: bool
+) -> str:
+    """Map method/is_update to the registered pipeline key."""
+    if isinstance(method, IndexingMethod):
+        base = method.value
+    else:
+        base = str(method)
+    if is_update:
+        if base == IndexingMethod.Standard.value:
+            return IndexingMethod.StandardUpdate.value
+        if base == IndexingMethod.Fast.value:
+            return IndexingMethod.FastUpdate.value
+        if base.endswith("update"):
+            return base
+    return base
