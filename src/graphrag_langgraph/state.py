@@ -29,6 +29,7 @@ class QueryState(TypedDict, total=False):
     config: GraphRagConfig
     question: str
     mode: Literal["auto", "global", "local", "basic", "drift"]
+    artifacts: dict[str, Any]
     query_context: dict[str, Any]
     intermediate: dict[str, Any]
     answer: Any

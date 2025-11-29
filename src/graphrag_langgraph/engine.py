@@ -140,14 +140,22 @@ class GraphRAGEngine:
             Desired search mode; defaults to "auto" (router to be implemented).
         """
         verbose = bool(kwargs.get("verbose", False))
+        community_level = kwargs.get("community_level")
 
         # Initialize logging consistent with the upstream query API
         init_loggers(config=self.config, verbose=verbose, filename="query.log")
+
+        artifacts = _load_query_artifacts_sync(
+            self.config,
+            mode=mode,
+            community_level=community_level,
+        )
 
         state: QueryState = {
             "config": self.config,
             "question": question,
             "mode": mode,
+            "artifacts": artifacts,
             **kwargs,
         }
         return asyncio.run(self.query_graph.ainvoke(state))
@@ -185,3 +193,80 @@ def _normalize_indexing_method(
         if base.endswith("update"):
             return base
     return base
+
+
+def _load_query_artifacts_sync(
+    config: GraphRagConfig,
+    mode: str,
+    community_level: int | None,
+) -> dict[str, Any]:
+    """
+    Synchronously load index artifacts required for the selected query mode.
+    """
+    from graphrag.utils.api import create_storage_from_config
+    from graphrag.utils.storage import load_table_from_storage, storage_has_table
+    import asyncio
+
+    m = (mode or "auto").lower()
+    if m == "auto":
+        m = "global"
+
+    async def _load_single() -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        # Determine which tables are required
+        if m == "local":
+            required = [
+                "communities",
+                "community_reports",
+                "text_units",
+                "relationships",
+                "entities",
+            ]
+            optional = ["covariates"]
+        elif m == "basic":
+            required, optional = ["text_units"], []
+        elif m == "drift":
+            required = [
+                "entities",
+                "communities",
+                "community_reports",
+                "text_units",
+                "relationships",
+            ]
+            optional = []
+        else:  # global
+            required, optional = ["entities", "communities", "community_reports"], []
+
+        if config.outputs:
+            data["multi-index"] = True
+            data["index_names"] = list(config.outputs.keys())
+            data["num_indexes"] = len(config.outputs)
+            # multi-index lists
+            for name, out_cfg in config.outputs.items():
+                storage = create_storage_from_config(out_cfg)
+                for tbl in required:
+                    key = f"{tbl}_list"
+                    data.setdefault(key, [])
+                    df = await load_table_from_storage(tbl, storage)
+                    data[key].append(df)
+                for opt in optional:
+                    key = f"{opt}_list"
+                    data.setdefault(key, [])
+                    if await storage_has_table(opt, storage):
+                        df = await load_table_from_storage(opt, storage)
+                        data[key].append(df)
+            return data
+
+        # single-index
+        storage = create_storage_from_config(config.output)
+        data["multi-index"] = False
+        for tbl in required:
+            data[tbl] = await load_table_from_storage(tbl, storage)
+        for opt in optional:
+            if await storage_has_table(opt, storage):
+                data[opt] = await load_table_from_storage(opt, storage)
+            else:
+                data[opt] = None
+        return data
+
+    return asyncio.run(_load_single())

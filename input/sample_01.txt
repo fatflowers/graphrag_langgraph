@@ -1,0 +1,12 @@
+GraphRAG LangGraph sample document 1.
+
+Contoso Labs is experimenting with graph-based retrieval-augmented generation
+to answer questions over a small corpus of technical memos. The team uses
+GraphRAG to build a knowledge graph of entities such as organizations, people,
+and research topics, and then runs global and local search over the graph.
+
+Key entities:
+- Contoso Labs (organization)
+- Fabrikam AI (organization)
+- Graph-based RAG (research topic)
+

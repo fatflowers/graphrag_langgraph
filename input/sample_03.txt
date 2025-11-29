@@ -1,0 +1,12 @@
+GraphRAG LangGraph sample document 3.
+
+Adventure Works uses GraphRAG to analyze customer feedback about new products.
+The system extracts entities like product names, customer segments, and issues,
+then links them into a graph. Local search allows analysts to drill into
+specific products, while global search summarizes trends across communities.
+
+Key entities:
+- Adventure Works (organization)
+- Customer segment (group)
+- Product issue (event)
+

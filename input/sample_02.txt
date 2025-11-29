@@ -1,0 +1,12 @@
+GraphRAG LangGraph sample document 2.
+
+Northwind Research is indexing reports about scientific projects. Each report
+mentions organizations, principal investigators, and locations. The GraphRAG
+indexing pipeline chunks the reports, extracts entities and relationships,
+clusters communities, and generates multi-level summaries for query-time use.
+
+Key entities:
+- Northwind Research (organization)
+- Principal investigator (role)
+- Scientific project (event)
+

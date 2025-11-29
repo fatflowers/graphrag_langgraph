@@ -34,9 +34,5 @@ htmlcov/
 cache/
 
 testrun/
-input/
-output/
-prompts/
-settings.yaml
 
 logs/

@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Standard Index (LangGraph + LangSmith)",
+      "name": "Standard Index",
       "type": "debugpy",
       "request": "launch",
       "module": "graphrag_langgraph.cli",
@@ -18,6 +18,25 @@
       "console": "integratedTerminal",
       "justMyCode": false,
       "subProcess": true
+    },
+    {
+      "name": "Query",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "graphrag_langgraph.cli",
+      "args": [
+        "--config",
+        "${workspaceFolder}/settings.yaml",
+        "query",
+        "Did Adventure Works  used GraphRAG?",
+        "--mode",
+        "global",
+        "--verbose"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "subProcess": true,
     }
   ]
 }
