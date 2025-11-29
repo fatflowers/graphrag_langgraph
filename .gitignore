@@ -30,3 +30,13 @@ htmlcov/
 
 # Generated index artifacts
 .graph_index/
+
+cache/
+
+testrun/
+input/
+output/
+prompts/
+settings.yaml
+
+logs/

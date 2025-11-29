@@ -13,6 +13,7 @@ class IndexState(TypedDict, total=False):
     """Mutable state carried through the LangGraph indexing graph."""
 
     config: GraphRagConfig
+    context: Any
     pipeline_method: str
     additional_context: dict[str, Any]
     input_documents: Any
