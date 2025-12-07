@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol
 
-from langgraph.graph import END, StateGraph
-
 from graphrag.api import (
     basic_search,
     drift_search,
@@ -23,6 +21,7 @@ from graphrag.api import (
     multi_index_local_search,
 )
 from graphrag.config.models.graph_rag_config import GraphRagConfig
+from langgraph.graph import END, StateGraph
 
 from .state import QueryState
 

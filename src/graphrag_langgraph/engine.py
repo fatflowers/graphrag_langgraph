@@ -203,9 +203,10 @@ def _load_query_artifacts_sync(
     """
     Synchronously load index artifacts required for the selected query mode.
     """
+    import asyncio
+
     from graphrag.utils.api import create_storage_from_config
     from graphrag.utils.storage import load_table_from_storage, storage_has_table
-    import asyncio
 
     m = (mode or "auto").lower()
     if m == "auto":

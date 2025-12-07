@@ -15,22 +15,43 @@ dependencies = [
   "langchain>=0.2.3",
   "langchain-community>=0.2.3",
   "langchain-core>=0.2.3",
-  "graphrag @ file:///Users/simon/learn/graphrag",
+  "langchain-text-splitters>=0.2.0",
+  # "graphrag @ file:///Users/simon/learn/graphrag",
   "pydantic>=2.6",
   "networkx>=3.2",
   "numpy>=1.26",
   "pandas>=2.2",
   "pyyaml>=6.0",
   "langsmith>=0.3.45",
+  "boto3>=1.42.4",
 ]
 
 [project.scripts]
 graphrag-langgraph = "graphrag_langgraph.cli:main"
 
 [project.optional-dependencies]
-dev = [
-  "pytest>=7.4",
-]
+dev = ["pytest>=7.4", "isort>=5.13.2", "pylint>=3.2.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+skip_gitignore = true
+src_paths = ["src"]
+
+[tool.pylint]
+py-version = "3.11"
+max-line-length = 88
+ignore = [".venv", "build", "dist"]
+# Ensure Pylint can resolve imports in the src/ layout
+init-hook = "import sys; sys.path.append('src')"
+
+
+# 安装（使用 uv）：
+#   uv sync --extra dev
+# 一键排序项目所有 *.py 的 imports：
+#   uv run isort .
+# 仅检查是否需要排序（CI 常用，返回非零退出码表示需要修复）：
+#   uv run isort --check-only .

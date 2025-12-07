@@ -9,13 +9,6 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from langchain_core.embeddings import Embeddings
-from langchain_core.language_models import BaseChatModel, BaseLanguageModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_core.prompts import PromptTemplate
-from langchain_core.pydantic_v1 import Extra, Field
-
 from graphrag.config.defaults import DEFAULT_CHAT_MODEL_ID, DEFAULT_EMBEDDING_MODEL_ID
 from graphrag.config.models.graph_rag_config import GraphRagConfig
 from graphrag.language_model.manager import ModelManager
@@ -39,6 +32,12 @@ from graphrag.prompts.query.local_search_system_prompt import (
     LOCAL_SEARCH_SYSTEM_PROMPT,
 )
 from graphrag.prompts.query.question_gen_system_prompt import QUESTION_SYSTEM_PROMPT
+from langchain_core.embeddings import Embeddings
+from langchain_core.language_models import BaseChatModel, BaseLanguageModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.prompts import PromptTemplate
+from langchain_core.pydantic_v1 import Extra, Field
 
 __all__ = [
     "get_llm",

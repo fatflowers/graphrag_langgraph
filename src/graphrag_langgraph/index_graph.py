@@ -11,14 +11,13 @@ from __future__ import annotations
 import logging
 from typing import Awaitable, Callable, Iterable, Protocol
 
-from langgraph.graph import END, StateGraph
-
 from graphrag.config.enums import IndexingMethod
 from graphrag.config.models.graph_rag_config import GraphRagConfig
 from graphrag.index import workflows as wf
 from graphrag.index.typing.context import PipelineRunContext
 from graphrag.index.typing.pipeline_run_result import PipelineRunResult
 from graphrag.index.typing.workflow import WorkflowFunctionOutput
+from langgraph.graph import END, StateGraph
 
 from .state import IndexState
 
